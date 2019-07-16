@@ -1,3 +1,31 @@
+// TODO-LIST 
+/* 
+
+Online -=Lapek=-
+	-Add websocket creator
+	-Make port checking (Ping <-> pong)
+	-Loading state 
+canvas.Object
+	-Add rotation function
+	-Add Gravity
+Audio -=Bigger komp=-
+	-Add Sound Object
+	-make it compatible with trigger events
+	-
+canvas.Map
+	-Make map editor (info in json format)
+	-
+canvas.math
+	-
+	-
+
+
+
+
+
+
+*/
+
 const rt = {
 	//Browser inner width
 	scrW : window.innerWidth,
@@ -28,9 +56,30 @@ const rt = {
 		avg : function(...values){
 			return (this.add(...values)/values.length).toFixed(3);
 		},
-		
 	},
-
+	Audio : {
+		sound : function(src,volume,other={}){
+			return Object.assign(other,{
+				sound : new Audio(src),
+				setVolume : function(){
+					this.sound.volume = volume;
+				},
+				play : function(){
+					this.sound.play();
+				},
+				pause : function(){
+					this.sound.pause();
+				},
+				reset : function(time = 0){
+					this.sound.currentTime = time;
+				},
+				stop : function(){
+					this.pause();
+					this.reset(0);
+				}
+			})
+		}
+	},
 	canvas : {
 		//canvas Element
 		c : null,
@@ -124,7 +173,7 @@ const rt = {
 			},
 			rect : function(x,y,w,h,other = {}){
 				return Object.assign(other,{
-					x:x,
+					x:x, //center x,y bcs of offset
 					y:y,
 					w:w,
 					h:h,
@@ -163,7 +212,6 @@ const rt = {
 			},
 			poly : function(other={},...points){ // [{x:? y:?}, {x:?,y:?},...] <- points
 				return Object.assign(other,{
-					points : points,
 					width : (()=>{
 						let biggest=0;
 						let smallest=Infinity;
@@ -188,6 +236,8 @@ const rt = {
 						}
 						return biggest-smallest;
 					})(),
+					cX : 0,
+					cy : 0,
 					poly : (()=>{
 						let array = [];
 						for(let i = 0 ; i < points.length ; i++){
@@ -199,6 +249,18 @@ const rt = {
 						}
 						return array;
 					})(),
+					setCenter : function(){
+						let totalX=[];
+						let totalY=[];
+						for(let i = 0 ; i < this.poly.length ; i++){
+							totalX.unshift(this.poly[i].x1);
+							totalX.unshift(this.poly[i].x2);
+							totalY.unshift(this.poly[i].y1);
+							totalY.unshift(this.poly[i].y2);
+						}
+						this.cX = rt.math.avg(...totalX);
+						this.cY = rt.math.avg(...totalY);
+					}, //Make it dependant to draw!
 					draw:function(clr='#000'){
 						if(!rt.canvas.c){
 							console.error('No where to draw');
@@ -210,6 +272,7 @@ const rt = {
 								rt.canvas.draw.lineTo(this.poly[i].x2,this.poly[i].y2);
 							}
 							rt.canvas.draw.stroke();
+							rt.canvas.draw.fillRect(this.cX-1,this.cY-1,2,2);
 						}
 					}
 				})
@@ -250,41 +313,20 @@ const rt = {
 			}
 		},
 		gameFuncs : { //Add functions to objects
-			border : function(){ //Border blockage ***Make it more self dependant***
-				if (this.y > rt.canvas.c.height-this.r) {
-					if(this.grav && this.gravSpd){
-						this.gravSpd=-this.gravSpd/1.2;		
-					}
-					else{
-						this.velY=-this.velY;
-					}
-					this.y = rt.canvas.c.height-this.r;
-				}else if(this.y < 0+this.r){
-					if(this.grav && this.gravSpd){
-						this.gravSpd =-this.gravSpd;
-					}else{
-						this.velY=-this.velY;
-					}
-				}if(this.x > rt.canvas.c.width-this.r){
-					this.x = rt.canvas.c.width-this.r;
-					this.velX=-this.velX/1.1;
-				}else if(this.x < 0+this.r){
-					this.x = 0+this.r;
-					this.velX=-this.velX/1.1;
+			//BORDER optimisation : Try to add less parameters in object somehow
+			border : function({ LEFT=rt.canvas.c.width, RIGHT=0, TOP=rt.canvas.c.height, BOTTOM=0, LB=0,TB=0,RB=rt.canvas.c.width,BB=rt.canvas.c.height}={}){ // Object as para, left up right down as properties
+				if(this.x > RB){ // RIGHT side
+					this.x=RIGHT;
+				}else if(this.x<LB){ // LEFT side
+					this.x = LEFT;
+				}else if(this.y > BB){ //BOTTOM side
+					this.y = BOTTOM;
+				}else if(this.y < TB){ //TOP side
+					this.y = TOP;
 				}
-			},
-			gravity : function(gravStrength = 0.02){
-				return {
-					grav : gravStrength,
-					gravSpd : 0,
-				}
-			},
-			update : function(){
-				this.x += this.velX;
-				this.y += this.velY;
-			},
-
+			}
 		},
+		//Removes canvas
 		remove : function(){
 			if(this.c == null || !this.c){
 				console.error('no canvas to remove');
@@ -301,6 +343,7 @@ const rt = {
 		setFps : function(fps){
 			this.fps = fps;
 		},
+		//Sets Main loop function
 		setLoop : function(func){
 			this.main_loop_function = func;
 		},
@@ -336,119 +379,43 @@ const rt = {
 			}
 		},
 		//Executes callback after TIME = ms or time*fps
-		Counter : function(time,callback=()=>{}){
-			return {
-				count : 0,
-				sec : 0,
-				pause : false,
-				start : function(){
-					pause=false;
-				},
-				next : function(){
-					if(!this.pause){
-						this.count++;
-						if(this.count>=time){
-							this.count=0;
-							this.sec++;
-							callback();
-						}
+
+	},
+	Counter : function(time,callback=()=>{}){
+		return {
+			count : 0,
+			sec : 0,
+			pause : false,
+			start : function(){
+				pause=false;
+			},
+			next : function(){
+				if(!this.pause){
+					this.count++;
+					if(this.count>=time){
+						this.count=0;
+						this.sec++;
+						callback();
 					}
-				},
-				reset : function(){
-					this.count = 0;
-					this.sec = 0;
-				},
-				stop : function(){
-					pause=true;
 				}
+			},
+			reset : function(){
+				this.count = 0;
+				this.sec = 0;
+			},
+			stop : function(){
+				pause=true;
 			}
 		}
 	},
-	help : function(){
+	Help : function(){
 		console.log(this.desc);
 	},
-	randomName : function(){
+	RandomName : function(){
 		let o = ['Bear','Troll','Toxic','Money','Creep','One-legged','Polish','Poor','Freaky'];
 		let t = ['Licker','Cuddler','Leader','Maker','Wrestler','Grabber','Thrower','Swimmer','Hiker'];
 		return o[rt.math.random(0,o.length-1)]+t[rt.math.random(0,t.length-1)]+rt.math.random(0,999);
 	}
 }
 
-
-
-
-
-
-
-let poly;
-
-
-onload = ()=>{
-	// rt.canvas.create();
-	// rt.canvas.setFps(60);
-	// circle = new rt.canvas.Object.circle(rt.canvas.c.width/2,rt.canvas.c.height/2,100);
-	// line = new rt.canvas.Object.line({x : rt.canvas.c.width/2, y : rt.canvas.c.height/2-50},{x : rt.canvas.c.width/2, y : rt.canvas.c.height/2+50},{
-	// 	update : function(){
-	// 		this.x1 = rt.canvas.c.width/2;
-	// 		this.y1 = rt.canvas.c.height/2-50;
-	// 	},
-	// 	center : rt.math.avg(this.x1,this.x2,this.y1,this.y2),
-	// });
-	// rt.canvas.setLoop(()=>{
-	// 	rt.canvas.clear();
-	// 	line.update();
-	// 	circle.draw();
-	// 	line.draw();
-	// })
-	// rt.canvas.startLoop();
-
-	rt.canvas.create();
-	rt.canvas.setFps(60);
-	poly = new rt.canvas.Object.poly({
-		key : null,
-		xV : 0,
-		yV : 0,
-		rotation : 0.1,
-		updateAll : function(){
-			switch(rt.canvas.key){
-				case 37: //left
-					this.yV=0;
-					this.xV=-1;
-					break;
-				case 38: //up
-					this.yV=-1;
-					this.xV=0;
-					break;
-				case 39: // right
-					this.yV=0;
-					this.xV=1;
-					break;
-				case 40: //down
-					this.yV=1;
-					this.xV=0;
-					break;
-				case 32 :
-					rt.canvas.draw.rotate(this.rotation*Math.PI/180);
-					break;
-				default:
-					this.yV=0;
-					this.xV=0;
-					break;
-			}
-			for(let i = 0 ; i < this.poly.length ; i++){
-				this.poly[i].x1 += this.xV;
-				this.poly[i].x2 += this.xV;
-				this.poly[i].y1 += this.yV;
-				this.poly[i].y2 += this.yV;
-			}
-
-		}
-	},{x:200,y:100},{x:250,y:150},{x:250,y:200},{x:200,y:250},{x:150,y:250},{x:100,y:200},{x:100,y:150},{x:150,y:100});
-	rt.canvas.setLoop(()=>{
-		rt.canvas.clear();
-		poly.updateAll();
-		poly.draw();
-	});
-	rt.canvas.startLoop();
-}
 
